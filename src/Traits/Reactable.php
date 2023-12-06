@@ -3,9 +3,11 @@
 namespace Qirolab\Laravel\Reactions\Traits;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Qirolab\Laravel\Reactions\Contracts\ReactsInterface;
 use Qirolab\Laravel\Reactions\Exceptions\InvalidReactionUser;
 use Qirolab\Laravel\Reactions\Models\Reaction;
+use Qirolab\Laravel\Reactions\Utility\ReactionUtility;
 
 trait Reactable
 {
@@ -43,27 +45,72 @@ trait Reactable
         return $this->reactionsBy();
     }
 
-    /**
-     * Reaction summary.
-     *
-     * @return \Illuminate\Database\Eloquent\Collection|static[]
-     */
+
     public function reactionSummary()
     {
-        if ($this->relationLoaded('reactions')) {
-            return $this->reactions->groupBy('type')->map(function ($val) {
-                return $val->count();
+        if (config('reactions.cache.summary.enabled')) {
+            return $this->getCachedReactionSummary();
+        }
+
+        return $this->getReactionSummary();
+    }
+
+    protected function getCachedReactionSummary()
+    {
+        $ttl = (int)config('reactions.cache.summary.ttl');
+        $driver = config('reactions.cache.summary.driver');
+        $relationLoaded = $this->relationLoaded('reactions');
+        $key = $relationLoaded ? 'reaction_summary_relation_loaded_' : 'reaction_summary_relation_not_loaded_';
+        $key .= $this->id;
+
+        if ($relationLoaded) {
+            return Cache::store($driver)->remember($key, $ttl, function () {
+                return $this->getRelationLoadedSummary();
             });
         }
 
-        return $this->reactions()
-            ->groupBy('type')
-            ->selectRaw('type, count(id) as total_count')
-            ->get()
-            ->mapWithKeys(function ($val) {
-                return [$val->type => $val->total_count];
-            });
+        return Cache::store($driver)->remember($key, $ttl, function () {
+            return $this->getReactionSummaryQuery();
+        });
     }
+
+    protected function getReactionSummary()
+    {
+        if ($this->relationLoaded('reactions')) {
+            return $this->getRelationLoadedSummary();
+        }
+
+        return $this->getReactionSummaryQuery();
+    }
+
+    protected function getRelationLoadedSummary()
+    {
+        return $this->reactions->groupBy('type')->map(function ($val, $index) {
+            return $val->{ReactionUtility::getType($this, $index)}('value');
+        });
+    }
+
+    protected function getReactionSummaryQuery()
+    {
+        $reactions = $this->reactions()->clone();
+        $getTypes = $reactions->select('type')
+            ->groupBy('type')
+            ->get();
+        $types = [];
+        foreach ($getTypes as $reaction) {
+            $types[] = $reaction['type'];
+        }
+        $query = $this->reactions()->groupBy('type');
+        foreach ($types as $type) {
+            $func = ReactionUtility::getType($this, $type);
+            $column = $func === 'count' ? 'id' : 'value';
+            $query->selectRaw("type, $func($column) as $type");
+        }
+        return $query->get()->mapWithKeys(function ($val) {
+            return [$val->type => (float)$val[$val->type]];
+        });
+    }
+
 
     /**
      * Reaction summary attribute.
@@ -78,8 +125,8 @@ trait Reactable
     /**
      * Add reaction.
      *
-     * @param  mixed  $reactionType
-     * @param  mixed  $user
+     * @param mixed $reactionType
+     * @param mixed $user
      * @return Reaction|bool
      */
     public function react($reactionType, $user = null)
@@ -96,7 +143,7 @@ trait Reactable
     /**
      * Remove reaction.
      *
-     * @param  mixed  $user
+     * @param mixed $user
      * @return bool
      */
     public function removeReaction($user = null)
@@ -113,8 +160,8 @@ trait Reactable
     /**
      * Toggle Reaction.
      *
-     * @param  mixed  $reactionType
-     * @param  mixed  $user
+     * @param mixed $reactionType
+     * @param mixed $user
      * @return void|Reaction
      */
     public function toggleReaction($reactionType, $user = null)
@@ -129,7 +176,7 @@ trait Reactable
     /**
      * Reaction on reactable model by user.
      *
-     * @param  mixed  $user
+     * @param mixed $user
      * @return Reaction
      */
     public function reacted($user = null)
@@ -152,7 +199,7 @@ trait Reactable
     /**
      * Check is reacted by user.
      *
-     * @param  mixed  $user
+     * @param mixed $user
      * @return bool
      */
     public function isReactBy($user = null, $type = null)
@@ -169,7 +216,7 @@ trait Reactable
     /**
      * Check is reacted by user.
      *
-     * @param  mixed  $user
+     * @param mixed $user
      * @return bool
      */
     public function getIsReactedAttribute()
@@ -180,14 +227,14 @@ trait Reactable
     /**
      * Fetch records that are reacted by a given user.
      *
-     * @todo think about method name
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  string  $type
-     * @param  null|int|ReactsInterface  $userId
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @param string $type
+     * @param null|int|ReactsInterface $userId
      * @return \Illuminate\Database\Eloquent\Builder
      *
      * @throw \Qirolab\Laravel\Reactions\Exceptions\InvalidReactionUser
+     * @todo think about method name
+     *
      */
     public function scopeWhereReactedBy(Builder $query, $userId = null, $type = null)
     {
@@ -196,7 +243,7 @@ trait Reactable
         try {
             $user = $this->getUser($userId);
         } catch (InvalidReactionUser $e) {
-            if (! $user && ! $userId) {
+            if (!$user && !$userId) {
                 throw InvalidReactionUser::notDefined();
             }
         }
@@ -215,14 +262,14 @@ trait Reactable
     /**
      * Get user model.
      *
-     * @param  mixed  $user
+     * @param mixed $user
      * @return ReactsInterface
      *
      * @throw \Qirolab\Laravel\Reactions\Exceptions\InvalidReactionUser
      */
     private function getUser($user = null)
     {
-        if (! $user && auth()->check()) {
+        if (!$user && auth()->check()) {
             return auth()->user();
         }
 
@@ -230,7 +277,7 @@ trait Reactable
             return $user;
         }
 
-        if (! $user) {
+        if (!$user) {
             throw InvalidReactionUser::notDefined();
         }
 

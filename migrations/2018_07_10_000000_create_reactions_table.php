@@ -21,11 +21,13 @@ class CreateReactionsTable extends Migration
             $table->integer('user_id')->unsigned()->index();
             $table->morphs('reactable');
             $table->string('type')->nullable();
+            $table->decimal('value', 10)->nullable();
             $table->timestamps();
             $table->unique([
                 'reactable_type',
                 'reactable_id',
                 'user_id',
+                'type'
             ], 'react_user_unique');
             // $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
         });

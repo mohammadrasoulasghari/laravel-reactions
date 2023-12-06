@@ -21,6 +21,7 @@ class Reaction extends Model
     protected $fillable = [
         'user_id',
         'type',
+        'value',
     ];
 
     public function __construct(array $attributes = [])

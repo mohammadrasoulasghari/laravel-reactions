@@ -11,6 +11,8 @@ use Qirolab\Laravel\Reactions\Utility\ReactionUtility;
 
 trait Reactable
 {
+    abstract public static function reactionOptions(): array;
+
     /**
      * Collection of reactions.
      *

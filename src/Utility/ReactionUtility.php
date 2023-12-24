@@ -9,14 +9,14 @@ class ReactionUtility
 {
     public static function getAggression(ReactableInterface $reactable,$type)
     {
-        $options = $reactable::$reactionOptions;
+        $options = $reactable::reactionOptions();
         if (in_array($type, array_keys($options))) {
             $reactionsOptionKey = $options[$type];
             $isAggression = $reactionsOptionKey['aggression'];
             $aggressionType = $reactionsOptionKey['aggression_type'];
             return [
                 'enabled'=> $isAggression,
-                'type'=> $aggressionType
+                'type'=> ReactionAggressionTypeEnum::tryFrom($aggressionType)
             ];
         }
         return null;

@@ -1,5 +1,5 @@
 {
-    "name": "qirolab/laravel-reactions",
+    "name": "mohammadrasoulasghari/laravel-reactions",
     "description": "Implement reactions (like, dislike, love, emotion etc) on Laravel Eloquent models.",
     "type": "library",
     "keywords": [
